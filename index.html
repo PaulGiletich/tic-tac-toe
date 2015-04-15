@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <title></title>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script src="https://cdn.socket.io/socket.io-1.2.0.js"></script>
+    <script>
+        var socket = io();
+
+        /*---Model---*/
+        function Model(boardColsLength, boardRowsLength) {
+            this.boardColsLength = boardColsLength;
+            this.boardRowsLength = boardRowsLength;
+            this.boardCells = [];
+            this.youTurn = true;
+            this.youSide = false;
+            this.sides = {
+                'x': 'x',
+                'o': 'o'
+            };
+        }
+
+        Model.prototype.initCells = function() {
+            for (var i = 0; i < this.boardColsLength; i++) {
+                for (var j = 0; j < this.boardRowsLength; j++) {
+                    var boardCell = new Cell(i, j);
+
+                    this.boardCells.push(boardCell);
+                }
+            }
+            return this.boardCells;
+        }
+
+        function Cell(row, col) {
+            this.row = row;
+            this.col = col;
+            this.mark = false;
+        }
+        /*---End Model---*/
+
+        /*---View---*/
+        function View(options) {
+            this.renderElem = options.renderElem;
+            this.canvas = document.getElementById(options.renderElem);
+            this.ctx = this.canvas.getContext('2d');
+            this.cellWidth = options.cellWidth;
+            this.cellHeight = options.cellHeight;
+            this.boardWidth = options.boardRowsLength * this.cellWidth;
+            this.boardHeight = options.boardColsLength * this.cellHeight;
+        }
+
+        View.prototype.drawBoard = function() {
+            this.ctx.clearRect(0, 0, this.boardWidth, this.boardHeight);
+
+            for (var x = 0; x <= this.boardWidth; x += this.cellWidth) {
+                this.ctx.moveTo(0.5 + x, 0);
+                this.ctx.lineTo(0.5 + x, this.boardHeight);
+            }
+
+            for (var y = 0; y <= this.boardHeight; y += this.cellHeight) {
+                this.ctx.moveTo(0, y + 0.5);
+                this.ctx.lineTo(this.boardWidth, y + 0.5);
+            }
+
+            this.ctx.strokeStyle = '#ccc';
+            this.ctx.stroke();
+        }
+
+        View.prototype.drawX = function(row, col) {
+            var x1 = col * this.cellWidth + 3,
+                y1 = row * this.cellHeight + 3,
+                x2 = col * this.cellWidth + this.cellWidth - 3,
+                y2 = row * this.cellHeight + this.cellHeight - 3;
+
+            this.ctx.beginPath();
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeStyle = '#bbb';
+            this.ctx.moveTo(x1, y1);
+            this.ctx.lineTo(x2, y2);
+            this.ctx.moveTo(x2, y1);
+            this.ctx.lineTo(x1, y2);
+            this.ctx.stroke();
+        }
+
+        View.prototype.drawO = function(row, col) {
+            var centerX = Math.round(col * this.cellWidth + this.cellWidth / 2),
+                centerY = Math.round(row * this.cellHeight + this.cellHeight / 2),
+                radius = Math.round((this.cellWidth / 2) - 3);
+
+            this.ctx.beginPath();
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeStyle = '#bbb';
+            this.ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+            this.ctx.stroke();
+        }
+        /*---End View---*/
+
+
+        /*---Controller---*/
+        function Controller(options) {
+            this.model = new Model(3, 3);
+            this.options = options;
+            this.view = new View(options);
+        }
+
+        Controller.prototype.drawCells = function() {
+            var that = this;
+
+            this.model.boardCells.forEach(function(cell) {
+                var cellCol = cell.col,
+                    cellRow = cell.row;
+
+                if (cell.mark == that.model.sides.x) {
+                    that.view.drawX(cellRow, cellCol);
+                } else if (cell.mark == that.model.sides.o) {
+                    that.view.drawO(cellRow, cellCol);
+                }
+            });
+        }
+
+        Controller.prototype.getCursorPosition = function(e) {
+            var x = e.pageX,
+                y = e.pageY;
+
+            x -= canvas.offsetLeft;
+            y -= canvas.offsetTop;
+
+            x = Math.min(x, this.options.boardColsLength * this.options.cellWidth);
+            y = Math.min(y, this.options.boardRowsLength * this.options.cellHeight);
+
+            var cell = new Cell(Math.floor(y/this.options.cellHeight), Math.floor(x/this.options.cellWidth));
+            return cell;
+        }
+
+        Controller.prototype.setSide = function(data) {
+            this.model.youSide = data.playerSide;
+            console.log(data);
+        }
+
+        Controller.prototype.addItem = function(elem) {
+            var cellItem = this.getCursorPosition(elem),
+                boardCellsList = this.model.boardCells,
+                that = this;
+
+            socket.emit('choose side');
+
+            if (!this.model.youSide) {
+                this.model.youSide = this.model.sides.x;
+            }
+
+            if (!this.model.youTurn) {
+                return false;
+            } else {
+                boardCellsList.forEach(function(cell) {
+                    if (cellItem.col == cell.col && cellItem.row == cell.row) {
+                        if (!cell.mark) {
+                            cell.mark = that.model.youSide;
+                            that.drawCells();
+                            socket.emit('click', {'boardCells': boardCellsList});
+                        } else {
+                            return false;
+                        }
+                    }
+                });
+            }
+        }
+
+        Controller.prototype.init = function() {
+            this.model.initCells();
+            this.view.drawBoard();
+            this.drawCells();
+        }
+
+        Controller.prototype.interaction = function(data) {
+            this.model.youTurn = data.youTurn;
+            this.model.boardCells = data.boardCells;
+            this.drawCells();
+        }
+        /*---End Controller---*/
+
+        var gameOptions = {
+                'renderElem': 'canvas',
+                'cellWidth': 50,
+                'cellHeight': 50,
+                'boardRowsLength': 3,
+                'boardColsLength': 3
+        };
+
+        var game = new Controller(gameOptions);
+        socket.on('set side', game.setSide.bind(game));
+        socket.on('turn', game.interaction.bind(game));
+        game.init();
+
+        var canvas = document.getElementById('canvas');
+        canvas.addEventListener('click', game.addItem.bind(game));
+        /*---END MVC---*/
+    </script>
+</body>
+</html>
