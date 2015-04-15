@@ -35,3 +35,14 @@ io.on('connection', function(socket) {
 http.listen(3000, function() {
     console.log('Server started');
 });
+
+
+// TODO
+// move game model to server, add basic validation
+// optional: reuse same model class on server and client
+// decide user turn and user role (x, 0) on join
+// create classes for cells to allow themes switch, read about strategy pattern
+// move initialisation to controller
+// split model, view, controller to files
+// getCursorPosition(elem), should be in view
+// drawCells should be in view too
